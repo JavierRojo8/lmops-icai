@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAPFRE - Procesamiento de Volantes Médicos</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 1200px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .upload-section {
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-section:hover {
+            border-color: #764ba2;
+            background: #f0f0f5;
+        }
+
+        .upload-section.dragover {
+            border-color: #764ba2;
+            background: #e8e9ff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            color: #555;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .btn-upload {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1em;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-upload:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .preview-section {
+            display: none;
+            margin-bottom: 30px;
+        }
+
+        .preview-section.active {
+            display: block;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 10px;
+            margin: 20px auto;
+            display: block;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .config-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .config-section label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .config-section input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .config-section input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .results-section {
+            display: none;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 30px;
+            margin-top: 30px;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .results-header {
+            color: #333;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .success-icon {
+            color: #28a745;
+            font-size: 1.5em;
+        }
+
+        .error-icon {
+            color: #dc3545;
+            font-size: 1.5em;
+        }
+
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-item label {
+            font-weight: 600;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .result-item .value {
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .result-item .null-value {
+            color: #999;
+            font-style: italic;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #dc3545;
+            margin-top: 20px;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1em;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-left: 10px;
+            transition: transform 0.2s;
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            background: #5a6268;
+        }
+
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .upload-section {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏥 MAPFRE Salud</h1>
+            <p>Procesamiento Automático de Volantes Médicos</p>
+        </div>
+
+        <!-- Sección de configuración -->
+        <div class="config-section">
+            <label for="apiUrl">🔗 URL del API:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8000/v1/image/process-image" placeholder="http://localhost:8000/v1/image/process-image">
+        </div>
+
+        <!-- Sección de carga -->
+        <div class="upload-section" id="uploadSection">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">Arrastra y suelta el volante médico aquí</div>
+            <div class="upload-text" style="font-size: 0.9em; color: #888;">Soporta imágenes (JPG, PNG) y archivos PDF</div>
+            <div class="upload-text">o</div>
+            <input type="file" id="fileInput" class="file-input" accept="image/*,application/pdf">
+            <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
+                📤 Seleccionar Archivo (Imagen o PDF)
+            </button>
+        </div>
+
+        <!-- Sección de preview -->
+        <div class="preview-section" id="previewSection">
+            <img id="imagePreview" class="image-preview" alt="Vista previa">
+            <div class="button-group">
+                <button class="btn-upload" id="processBtn">
+                    🚀 Procesar Volante
+                </button>
+                <button class="btn-secondary" id="resetBtn">
+                    🔄 Nueva Imagen
+                </button>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Procesando volante médico con Gemini AI...</p>
+            <p style="color: #666; margin-top: 10px;">Esto puede tardar unos segundos</p>
+        </div>
+
+        <!-- Sección de resultados -->
+        <div class="results-section" id="resultsSection">
+            <div class="results-header">
+                <span class="success-icon">✅</span>
+                <span>Información Extraída del Volante</span>
+            </div>
+            <div id="resultsContainer"></div>
+            <div class="button-group" style="margin-top: 30px;">
+                <button class="btn-upload" id="newProcessBtn">
+                    📄 Procesar Otro Volante
+                </button>
+                <button class="btn-secondary" id="downloadBtn">
+                    💾 Descargar JSON
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let lastResult = null;
+
+        const fileInput = document.getElementById('fileInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const previewSection = document.getElementById('previewSection');
+        const imagePreview = document.getElementById('imagePreview');
+        const processBtn = document.getElementById('processBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const loading = document.getElementById('loading');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const apiUrlInput = document.getElementById('apiUrl');
+        const newProcessBtn = document.getElementById('newProcessBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        // Drag and drop
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('dragover');
+        });
+
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            const isPDF = file.type === 'application/pdf';
+            const isImage = file.type.startsWith('image/');
+            
+            if (!isPDF && !isImage) {
+                alert('Por favor, selecciona un archivo de imagen válido (JPG, PNG) o un PDF.');
+                return;
+            }
+
+            selectedFile = file;
+            
+            if (isPDF) {
+                // Para PDFs, mostrar un ícono en lugar de preview
+                imagePreview.style.display = 'none';
+                const pdfIndicator = document.createElement('div');
+                pdfIndicator.id = 'pdfIndicator';
+                pdfIndicator.style.cssText = `
+                    text-align: center;
+                    padding: 40px;
+                    background: #f8f9fa;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                `;
+                pdfIndicator.innerHTML = `
+                    <div style="font-size: 4em; margin-bottom: 10px;">📄</div>
+                    <div style="font-size: 1.2em; color: #333;">${file.name}</div>
+                    <div style="font-size: 0.9em; color: #666; margin-top: 5px;">
+                        Archivo PDF (${(file.size / 1024 / 1024).toFixed(2)} MB)
+                    </div>
+                `;
+                
+                // Remover indicador anterior si existe
+                const existingIndicator = document.getElementById('pdfIndicator');
+                if (existingIndicator) existingIndicator.remove();
+                
+                // Insertar antes del grupo de botones
+                const buttonGroup = previewSection.querySelector('.button-group');
+                previewSection.insertBefore(pdfIndicator, buttonGroup);
+                
+            } else {
+                // Para imágenes, mostrar preview normal
+                imagePreview.style.display = 'block';
+                const existingIndicator = document.getElementById('pdfIndicator');
+                if (existingIndicator) existingIndicator.remove();
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            uploadSection.style.display = 'none';
+            previewSection.classList.add('active');
+            resultsSection.classList.remove('active');
+        }
+
+        // Process button
+        processBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            const apiUrl = apiUrlInput.value.trim();
+            if (!apiUrl) {
+                alert('Por favor, ingresa la URL del API.');
+                return;
+            }
+
+            previewSection.classList.remove('active');
+            loading.classList.add('active');
+            resultsSection.classList.remove('active');
+
+            try {
+                // Convert file to base64
+                const base64 = await fileToBase64(selectedFile);
+                
+                // Remove data URL prefix if present
+                const base64Clean = base64.includes(',') ? base64.split(',')[1] : base64;
+
+                // Determine MIME type
+                const mimeType = selectedFile.type || 'image/jpeg';
+
+                // Call API
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        file_base64: base64Clean,
+                        mime_type: mimeType
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Error ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                lastResult = data;
+                displayResults(data.extracted_data);
+
+            } catch (error) {
+                loading.classList.remove('active');
+                resultsSection.innerHTML = `
+                    <div class="error-message">
+                        <div class="results-header">
+                            <span class="error-icon">❌</span>
+                            <span>Error al procesar la imagen</span>
+                        </div>
+                        <p style="margin-top: 15px;"><strong>Detalles:</strong> ${error.message}</p>
+                        <p style="margin-top: 10px; color: #666;">Verifica que el servicio esté ejecutándose en la URL configurada.</p>
+                    </div>
+                    <div class="button-group" style="margin-top: 20px;">
+                        <button class="btn-upload" onclick="location.reload()">🔄 Reintentar</button>
+                    </div>
+                `;
+                resultsSection.classList.add('active');
+            }
+        });
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function displayResults(data) {
+            loading.classList.remove('active');
+            
+            const fieldLabels = {
+                filiacion_asegurado: '👤 Filiación del Asegurado',
+                codigo_servicio_concertado: '🏥 Código Servicio Concertado',
+                numero_documento: '📄 Número de Documento',
+                Profesional_prescriptor: '👨‍⚕️ Profesional Prescriptor',
+                Numero_de_colegiado: '🆔 Número de Colegiado',
+                Especialidad: '🩺 Especialidad Médica',
+                prescripcion: '💊 Prescripción',
+                fecha_primeros_sintomas: '📅 Fecha Primeros Síntomas',
+                motivos_sintomas: '🩺 Motivos/Síntomas',
+                prestacion_sanitaria: '⚕️ Prestación Sanitaria',
+                numero_autorizacion: '🔐 Número de Autorización',
+                codigo_servicio_realizador: '🏥 Código Servicio Realizador',
+                firma_profesional_realizador: '✍️ Firma Profesional Realizador',
+                firma_asegurado: '✍️ Firma Asegurado',
+                firma_sello_prescriptor: '✍️ Firma y Sello Prescriptor',
+                fecha_realizacion: '📅 Fecha de Realización',
+                origen_patologia: '🔍 Origen Patología'
+            };
+
+            let html = '';
+            for (const [key, value] of Object.entries(data)) {
+                const label = fieldLabels[key] || key;
+                const displayValue = value === null || value === undefined || value === '' 
+                    ? '<span class="null-value">No detectado</span>' 
+                    : `<span class="value">${formatValue(value)}</span>`;
+                
+                html += `
+                    <div class="result-item">
+                        <label>${label}</label>
+                        ${displayValue}
+                    </div>
+                `;
+            }
+
+            resultsContainer.innerHTML = html;
+            resultsSection.classList.add('active');
+        }
+
+        function formatValue(value) {
+            if (typeof value === 'boolean') {
+                return value ? '✅ Sí' : '❌ No';
+            }
+            return String(value);
+        }
+
+        // Reset button
+        resetBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            imagePreview.style.display = 'block';
+            const pdfIndicator = document.getElementById('pdfIndicator');
+            if (pdfIndicator) pdfIndicator.remove();
+            previewSection.classList.remove('active');
+            uploadSection.style.display = 'block';
+            resultsSection.classList.remove('active');
+        });
+
+        // New process button
+        newProcessBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            imagePreview.style.display = 'block';
+            const pdfIndicator = document.getElementById('pdfIndicator');
+            if (pdfIndicator) pdfIndicator.remove();
+            previewSection.classList.remove('active');
+            uploadSection.style.display = 'block';
+            resultsSection.classList.remove('active');
+        });
+
+        // Download button
+        downloadBtn.addEventListener('click', () => {
+            if (!lastResult) return;
+            
+            const dataStr = JSON.stringify(lastResult, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `volante_${new Date().getTime()}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>

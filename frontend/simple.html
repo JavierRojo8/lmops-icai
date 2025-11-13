@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAPFRE - Procesador de Volantes</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .upload-area {
+            border: 2px dashed #4CAF50;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+        }
+        .upload-area:hover {
+            background: #f9f9f9;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .preview {
+            max-width: 100%;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .field {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        .field strong {
+            color: #555;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+        }
+        .loading.active {
+            display: block;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 Procesador de Volantes MAPFRE</h1>
+        
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <p>📤 Click aquí o arrastra un archivo</p>
+            <p style="font-size: 0.9em; color: #888; margin-top: 5px;">Soporta imágenes (JPG, PNG) y PDFs</p>
+            <input type="file" id="fileInput" accept="image/*,application/pdf">
+        </div>
+
+        <div id="preview" style="display:none;">
+            <img id="previewImg" class="preview">
+            <button onclick="processImage()">Procesar</button>
+            <button onclick="reset()">Cancelar</button>
+        </div>
+
+        <div id="loading" class="loading">
+            <p>⏳ Procesando imagen...</p>
+        </div>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/v1/image/process-image';
+        let selectedFile = null;
+
+        document.getElementById('fileInput').addEventListener('change', handleFile);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            const previewDiv = document.getElementById('preview');
+            const previewImg = document.getElementById('previewImg');
+            
+            if (file.type === 'application/pdf') {
+                // Para PDFs, mostrar un indicador en lugar de imagen
+                previewImg.style.display = 'none';
+                let pdfIndicator = document.getElementById('pdfIndicator');
+                if (!pdfIndicator) {
+                    pdfIndicator = document.createElement('div');
+                    pdfIndicator.id = 'pdfIndicator';
+                    pdfIndicator.style.cssText = `
+                        text-align: center;
+                        padding: 30px;
+                        background: #f9f9f9;
+                        border-radius: 5px;
+                        margin-bottom: 15px;
+                    `;
+                    previewDiv.insertBefore(pdfIndicator, previewDiv.firstChild);
+                }
+                pdfIndicator.innerHTML = `
+                    <div style="font-size: 3em; margin-bottom: 10px;">📄</div>
+                    <div style="font-size: 1.1em; color: #333;">${file.name}</div>
+                    <div style="font-size: 0.9em; color: #666; margin-top: 5px;">
+                        ${(file.size / 1024 / 1024).toFixed(2)} MB
+                    </div>
+                `;
+            } else {
+                // Para imágenes, mostrar preview
+                previewImg.style.display = 'block';
+                const pdfIndicator = document.getElementById('pdfIndicator');
+                if (pdfIndicator) pdfIndicator.remove();
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImg.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            previewDiv.style.display = 'block';
+        }
+
+        async function processImage() {
+            if (!selectedFile) return;
+
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                const base64 = await fileToBase64(selectedFile);
+                const cleanBase64 = base64.split(',')[1];
+                const mimeType = selectedFile.type || 'image/jpeg';
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        file_base64: cleanBase64,
+                        mime_type: mimeType
+                    })
+                });
+
+                if (!response.ok) throw new Error(`Error: ${response.statusText}`);
+
+                const data = await response.json();
+                displayResults(data.extracted_data);
+
+            } catch (error) {
+                document.getElementById('results').innerHTML = 
+                    `<div class="error">❌ Error: ${error.message}</div>`;
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function displayResults(data) {
+            const labels = {
+                filiacion_asegurado: 'Filiación Asegurado',
+                codigo_servicio_concertado: 'Código Servicio',
+                numero_documento: 'Nº Documento',
+                Profesional_prescriptor: 'Profesional Prescriptor',
+                Numero_de_colegiado: 'Nº Colegiado',
+                Especialidad: 'Especialidad',
+                prescripcion: 'Prescripción',
+                fecha_primeros_sintomas: 'Fecha Síntomas',
+                motivos_sintomas: 'Motivos',
+                prestacion_sanitaria: 'Prestación',
+                numero_autorizacion: 'Nº Autorización',
+                codigo_servicio_realizador: 'Servicio Realizador',
+                firma_profesional_realizador: 'Firma Profesional',
+                firma_asegurado: 'Firma Asegurado',
+                firma_sello_prescriptor: 'Firma Prescriptor',
+                fecha_realizacion: 'Fecha Realización',
+                origen_patologia: 'Origen'
+            };
+
+            let html = '<h3>✅ Resultados</h3>';
+            for (const [key, value] of Object.entries(data)) {
+                const label = labels[key] || key;
+                const displayValue = value === null ? '<em>No detectado</em>' : 
+                    typeof value === 'boolean' ? (value ? '✓ Sí' : '✗ No') : value;
+                html += `<div class="field"><strong>${label}:</strong> ${displayValue}</div>`;
+            }
+            
+            html += `
+                <button onclick="downloadJSON()">💾 Descargar JSON</button>
+                <button onclick="reset()">🔄 Nueva Imagen</button>
+            `;
+            
+            document.getElementById('results').innerHTML = html;
+            window.lastResult = data;
+        }
+
+        function downloadJSON() {
+            const blob = new Blob([JSON.stringify(window.lastResult, null, 2)], 
+                { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `volante_${Date.now()}.json`;
+            a.click();
+        }
+
+        function reset() {
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('preview').style.display = 'none';
+            document.getElementById('previewImg').style.display = 'block';
+            const pdfIndicator = document.getElementById('pdfIndicator');
+            if (pdfIndicator) pdfIndicator.remove();
+            document.getElementById('results').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

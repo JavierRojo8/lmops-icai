@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot-to-Bot Interaction Visualizer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #0066cc;
+        }
+        .conversation {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .client {
+            background-color: #e9f7fe;
+            margin-right: 20%;
+        }
+        .parrot {
+            background-color: #f0f0f0;
+            margin-left: 20%;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .sender-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .client .sender-label {
+            color: #0066cc;
+        }
+        .parrot .sender-label {
+            color: #666;
+        }
+        /* AÑADIR ESTE CSS NUEVO AQUÍ */
+        .system {
+            background-color: #f8d7da;
+            margin-left: 10%;
+            margin-right: 10%;
+            font-style: italic;
+            font-size: 0.9em;
+        }
+        .system .sender-label {
+            color: #721c24;
+        }
+        .function-call {
+            background-color: #d1ecf1;
+            border-left: 3px solid #0c5460;
+        }
+        .redirect {
+            background-color: #fff3cd;
+            border-left: 3px solid #856404;
+        }
+        .summary {
+            background-color: #d4edda;
+            border-left: 3px solid #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-left: 3px solid #721c24;
+            color: #721c24;
+        }
+        .thinking {
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+            margin: 10px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bot-to-Bot Interaction Visualizer</h1>
+    <p>Watch as the client bot interacts with the Parrot insurance bot:</p>
+
+    <div class="conversation" id="conversation"></div>
+    <div class="thinking" id="thinking">Pensando...</div>
+
+    <div class="controls">
+        <button id="startBtn">Start Conversation</button>
+        <button id="resetBtn">Reset</button>
+    </div>
+
+    <script>
+        const conversation = document.getElementById('conversation');
+        const thinking = document.getElementById('thinking');
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        let ws;
+
+        function connect() {
+            ws = new WebSocket(`ws://${window.location.host}/v1/textbot/visualize/ws`);
+
+            ws.onmessage = (event) => {
+                thinking.style.display = 'none';
+                const data = JSON.parse(event.data);
+                addMessage(data.sender, data.message, data.type);
+                conversation.scrollTop = conversation.scrollHeight;
+
+                // Mostrar el indicador de "pensando" después de cada mensaje
+                if (data.sender !== 'system') {
+                    setTimeout(() => {
+                        thinking.style.display = 'block';
+                    }, 300);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('Connection closed');
+                startBtn.disabled = false;
+                thinking.style.display = 'none';
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                thinking.style.display = 'none';
+            };
+        }
+
+        function addMessage(sender, text, type) {
+            const messageDiv = document.createElement('div');
+
+            if (sender === 'client') {
+                messageDiv.className = 'message client';
+            } else if (sender === 'parrot') {
+                messageDiv.className = 'message parrot';
+            } else if (sender === 'system') {
+                messageDiv.className = `message system ${type || ''}`;
+            }
+
+            const senderLabel = document.createElement('div');
+            senderLabel.className = 'sender-label';
+
+            if (sender === 'client') {
+                senderLabel.textContent = 'Cliente Bot';
+            } else if (sender === 'parrot') {
+                senderLabel.textContent = 'Parrot Bot';
+            } else if (sender === 'system') {
+                senderLabel.textContent = 'Sistema';
+            }
+
+            const messageText = document.createElement('div');
+            messageText.textContent = text;
+
+            messageDiv.appendChild(senderLabel);
+            messageDiv.appendChild(messageText);
+            conversation.appendChild(messageDiv);
+        }
+
+        startBtn.addEventListener('click', () => {
+            startBtn.disabled = true;
+            thinking.style.display = 'block';
+            conversation.innerHTML = '';
+            connect();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (ws) {
+                ws.close();
+            }
+            conversation.innerHTML = '';
+            thinking.style.display = 'none';
+            startBtn.disabled = false;
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Client</title>
+    <style>
+        .controls { margin: 20px 0; }
+        .recording { background: red; }
+        .speaking { color: red; font-weight: bold; }
+        .listening { color: green; font-weight: bold; }
+        .playing { color: blue; font-weight: bold; }
+        #volumeControl { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button id="startBtn">Start Recording</button>
+        <button id="stopBtn" disabled>Stop Recording</button>
+        <div>
+            <label for="volumeControl">Volume:</label>
+            <input type="range" id="volumeControl" min="0" max="2" step="0.1" value="1">
+        </div>
+    </div>
+    <div id="status">Ready</div>
+
+    <script>
+        let ws;
+        let audioContext;
+        let mediaRecorder;
+        let gainNode;
+        let audioQueue = [];
+        let isPlaying = false;
+        let shouldPlayAudio = true;
+        let currentSource = null; // Variable para gestionar la fuente de audio actual
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const volumeControl = document.getElementById('volumeControl');
+        const API_KEY = 'zOQPH9yGdLWeb0p5ex72U4zv5exqY';
+        async function init() {
+            try {
+                ws = new WebSocket('ws://localhost:5050/v1/voicebot/voicebot');
+                ws.addEventListener('open', () => {
+                    ws.send(JSON.stringify({
+                        type: 'authentication',
+                        'x-api-key': API_KEY,
+                        'channel': 'local'
+                    }));
+                });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+
+                gainNode = audioContext.createGain();
+                gainNode.connect(audioContext.destination);
+
+                ws.onmessage = async (event) => {
+                    if (typeof event.data === 'string') {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.event === 'user_started_speaking') {
+                                // Detener reproducción TTS y limpiar buffer
+                                shouldPlayAudio = false;
+                                stopAudioPlayback();
+                                clearAudioQueue();
+                                status.textContent = 'User is speaking...';
+                            } else if (data.event === 'user_stopped_speaking') {
+                                // Reanudar reproducción TTS
+                                shouldPlayAudio = true;
+                                status.textContent = 'Listening...';
+                                if (audioQueue.length > 0 && !isPlaying) {
+                                    playNextChunk();
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Error parsing message:', e);
+                        }
+                    } else if (event.data instanceof Blob) {
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const pcmData = new Int16Array(arrayBuffer);
+                        if (shouldPlayAudio) {
+                            audioQueue.push(pcmData);
+                            if (!isPlaying) {
+                                playNextChunk();
+                            }
+                        } else {
+                            // Si no debe reproducir audio, descartar los datos o almacenarlos según sea necesario
+                            console.log('Audio received but not playing during user speech.');
+                        }
+                    }
+                };
+
+                volumeControl.addEventListener('input', (e) => {
+                    if (gainNode) {
+                        gainNode.gain.value = e.target.value;
+                    }
+                });
+
+                ws.onopen = () => {
+                    status.textContent = 'Connected. Click "Start Recording" to begin.';
+                    startBtn.disabled = false;
+                };
+
+                ws.onclose = () => {
+                    status.textContent = 'Disconnected';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = true;
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+
+            } catch (error) {
+                console.error('Error:', error);
+                status.textContent = 'Error: ' + error.message;
+            }
+        }
+
+        function stopAudioPlayback() {
+            if (currentSource) {
+                currentSource.stop();
+                currentSource = null;
+                isPlaying = false;
+            }
+        }
+
+        function clearAudioQueue() {
+            audioQueue = [];
+        }
+
+        async function playNextChunk() {
+            if (!shouldPlayAudio || audioQueue.length === 0) {
+                isPlaying = false;
+                return;
+            }
+
+            isPlaying = true;
+            const pcmData = audioQueue.shift();
+
+            const floatData = new Float32Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+                floatData[i] = pcmData[i] / 32768.0;
+            }
+
+            const buffer = audioContext.createBuffer(1, floatData.length, 16000);
+            buffer.copyToChannel(floatData, 0);
+
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(gainNode);
+
+            currentSource = source; // Guardar referencia a la fuente actual
+
+            source.onended = () => {
+                if (audioQueue.length > 0 && shouldPlayAudio) {
+                    playNextChunk();
+                } else {
+                    isPlaying = false;
+                    currentSource = null;
+                    if (shouldPlayAudio) {
+                        status.textContent = 'Listening...';
+                        status.classList.add('listening');
+                        status.classList.remove('playing', 'speaking');
+                    } else {
+                        status.textContent = 'User is speaking...';
+                        status.classList.add('speaking');
+                        status.classList.remove('playing', 'listening');
+                    }
+                }
+            };
+
+            source.start(0);
+            status.textContent = 'Playing response...';
+            status.classList.add('playing');
+            status.classList.remove('listening', 'speaking');
+        }
+
+        startBtn.onclick = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000
+                    }
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(event.data);
+                    }
+                };
+
+                mediaRecorder.start(100);
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                startBtn.classList.add('recording');
+                status.textContent = 'Recording...';
+                status.classList.remove('speaking', 'listening', 'playing');
+            } catch (error) {
+                console.error('Microphone error:', error);
+                status.textContent = 'Microphone error: ' + error.message;
+            }
+        };
+
+        stopBtn.onclick = () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            startBtn.classList.remove('recording');
+            status.textContent = 'Stopped recording';
+            status.classList.remove('speaking', 'listening', 'playing');
+        };
+
+        init();
+    </script>
+</body>
+</html>
+<!--
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Client</title>
+    <style>
+        .controls { margin: 20px 0; }
+        .recording { background: red; }
+        .speaking { color: red; font-weight: bold; }
+        .listening { color: green; font-weight: bold; }
+        .playing { color: blue; font-weight: bold; }
+        #volumeControl { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button id="startBtn">Start Recording</button>
+        <button id="stopBtn" disabled>Stop Recording</button>
+        <div>
+            <label for="volumeControl">Volume:</label>
+            <input type="range" id="volumeControl" min="0" max="2" step="0.1" value="1">
+        </div>
+    </div>
+    <div id="status">Ready</div>
+
+    <script>
+        let ws;
+        let audioContext;
+        let mediaRecorder;
+        let gainNode;
+        let compressor;
+        let filter;
+        let audioQueue = [];
+        let isPlaying = false;
+        let shouldPlayAudio = true;
+        let currentSource = null;
+        let bufferSize = 8192;
+        let preBufferThreshold = 3;
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const volumeControl = document.getElementById('volumeControl');
+        const API_KEY = 'zOQPH9yGdLWeb0p5ex72U4zv5exqY';
+
+        async function init() {
+            try {
+                ws = new WebSocket('ws://localhost:5050/v1/voicebot/voicebot');
+                ws.addEventListener('open', () => {
+                    ws.send(JSON.stringify({
+                        type: 'authentication',
+                        'x-api-key': API_KEY,
+                        'channel': 'local'
+                    }));
+                });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000,
+                    latencyHint: 'interactive'
+                });
+
+                gainNode = audioContext.createGain();
+                compressor = audioContext.createDynamicsCompressor();
+                filter = audioContext.createBiquadFilter();
+
+                compressor.threshold.value = -24;
+                compressor.knee.value = 30;
+                compressor.ratio.value = 12;
+                compressor.attack.value = 0.003;
+                compressor.release.value = 0.25;
+
+                filter.type = 'lowpass';
+                filter.frequency.value = 8000;
+                filter.Q.value = 0.7;
+
+                gainNode.gain.value = 1.2;
+
+                filter.connect(compressor);
+                compressor.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                setupWebSocketHandlers();
+                setupVolumeControl();
+
+            } catch (error) {
+                console.error('Error:', error);
+                status.textContent = 'Error: ' + error.message;
+            }
+        }
+
+        function setupWebSocketHandlers() {
+            ws.onmessage = async (event) => {
+                if (typeof event.data === 'string') {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(data);
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                } else if (event.data instanceof Blob) {
+                    await handleAudioData(event.data);
+                }
+            };
+
+            ws.onopen = () => {
+                status.textContent = 'Connected. Click "Start Recording" to begin.';
+                startBtn.disabled = false;
+            };
+
+            ws.onclose = () => {
+                status.textContent = 'Disconnected';
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function setupVolumeControl() {
+            volumeControl.addEventListener('input', (e) => {
+                if (gainNode) {
+                    gainNode.gain.value = e.target.value;
+                }
+            });
+        }
+
+        async function handleAudioData(data) {
+            const arrayBuffer = await data.arrayBuffer();
+            const pcmData = new Int16Array(arrayBuffer);
+
+            if (shouldPlayAudio) {
+                audioQueue.push(pcmData);
+                if (!isPlaying && audioQueue.length >= preBufferThreshold) {
+                    await playNextChunk();
+                }
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            if (data.event === 'user_started_speaking') {
+                shouldPlayAudio = false;
+                stopAudioPlayback();
+                clearAudioQueue();
+                status.textContent = 'User is speaking...';
+                status.classList.add('speaking');
+                status.classList.remove('listening', 'playing');
+            } else if (data.event === 'user_stopped_speaking') {
+                shouldPlayAudio = true;
+                status.textContent = 'Listening...';
+                status.classList.add('listening');
+                status.classList.remove('speaking', 'playing');
+                if (audioQueue.length >= preBufferThreshold) {
+                    playNextChunk();
+                }
+            }
+        }
+
+        function stopAudioPlayback() {
+            if (currentSource) {
+                currentSource.stop();
+                currentSource = null;
+                isPlaying = false;
+            }
+        }
+
+        function clearAudioQueue() {
+            audioQueue = [];
+        }
+
+        async function playNextChunk() {
+            if (!shouldPlayAudio || audioQueue.length === 0) {
+                isPlaying = false;
+                return;
+            }
+
+            try {
+                isPlaying = true;
+                const pcmData = audioQueue.shift();
+                const floatData = new Float32Array(pcmData.length);
+
+                for (let i = 0; i < pcmData.length; i++) {
+                    let sample = pcmData[i] / 32768.0;
+                    sample = Math.max(-0.95, Math.min(0.95, sample));
+                    floatData[i] = sample;
+                }
+
+                const buffer = audioContext.createBuffer(1, floatData.length, 16000);
+                buffer.copyToChannel(floatData, 0);
+
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(filter);
+                currentSource = source;
+
+                const nextChunkDelay = (buffer.duration * 1000) - 50;
+
+                source.onended = () => {
+                    if (audioQueue.length > 0 && shouldPlayAudio) {
+                        setTimeout(() => playNextChunk(), nextChunkDelay);
+                    } else {
+                        isPlaying = false;
+                        currentSource = null;
+                        updateStatus();
+                    }
+                };
+
+                source.start(0);
+                status.textContent = 'Playing response...';
+                status.classList.add('playing');
+                status.classList.remove('listening', 'speaking');
+            } catch (error) {
+                console.error('Error playing audio:', error);
+                isPlaying = false;
+                currentSource = null;
+                setTimeout(() => playNextChunk(), 100);
+            }
+        }
+
+        function updateStatus() {
+            if (shouldPlayAudio) {
+                status.textContent = 'Listening...';
+                status.classList.add('listening');
+                status.classList.remove('playing', 'speaking');
+            } else {
+                status.textContent = 'User is speaking...';
+                status.classList.add('speaking');
+                status.classList.remove('playing', 'listening');
+            }
+        }
+
+        startBtn.onclick = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000
+                    }
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(event.data);
+                    }
+                };
+
+                mediaRecorder.start(100);
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                startBtn.classList.add('recording');
+                status.textContent = 'Recording...';
+                status.classList.remove('speaking', 'listening', 'playing');
+            } catch (error) {
+                console.error('Microphone error:', error);
+                status.textContent = 'Microphone error: ' + error.message;
+            }
+        };
+
+        stopBtn.onclick = () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            startBtn.classList.remove('recording');
+            status.textContent = 'Stopped recording';
+            status.classList.remove('speaking', 'listening', 'playing');
+        };
+
+        init();
+    </script>
+</body>
+</html> -->

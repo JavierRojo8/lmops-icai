@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot-to-Bot Interaction Visualizer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #0066cc;
+        }
+        .conversation {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .client {
+            background-color: #e9f7fe;
+            margin-right: 20%;
+        }
+        .parrot {
+            background-color: #f0f0f0;
+            margin-left: 20%;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .sender-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .client .sender-label {
+            color: #0066cc;
+        }
+        .parrot .sender-label {
+            color: #666;
+        }
+        /* ESTILOS CSS EXISTENTES */
+        .system {
+            background-color: #f8d7da;
+            margin-left: 10%;
+            margin-right: 10%;
+            font-style: italic;
+            font-size: 0.9em;
+        }
+        .system .sender-label {
+            color: #721c24;
+        }
+        .function-call {
+            background-color: #d1ecf1;
+            border-left: 3px solid #0c5460;
+        }
+        .redirect {
+            background-color: #fff3cd;
+            border-left: 3px solid #856404;
+        }
+        .summary {
+            background-color: #d4edda;
+            border-left: 3px solid #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-left: 3px solid #721c24;
+            color: #721c24;
+        }
+        .thinking {
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+            margin: 10px 0;
+            display: none;
+        }
+        /* NUEVOS ESTILOS PARA AUDIO */
+        .play-button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .volume-container {
+            display: flex;
+            align-items: center;
+            margin-left: 20px;
+        }
+        .volume-label {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bot-to-Bot Interaction Visualizer</h1>
+    <p>Watch as the client bot interacts with the Parrot insurance bot:</p>
+
+    <div class="conversation" id="conversation"></div>
+    <div class="thinking" id="thinking">Pensando...</div>
+
+    <div class="controls">
+        <button id="startBtn">Start Conversation</button>
+        <button id="resetBtn">Reset</button>
+        <div class="volume-container">
+            <span class="volume-label">Volume:</span>
+            <input type="range" id="volumeControl" min="0" max="1" step="0.1" value="0.5">
+        </div>
+        <button id="toggleAudioBtn">Mute Audio</button>
+    </div>
+
+    <script>
+        const conversation = document.getElementById('conversation');
+        const thinking = document.getElementById('thinking');
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const volumeControl = document.getElementById('volumeControl');
+        const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+        let ws;
+        let audioEnabled = true;
+        let currentAudio = null;
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffers = new Map();
+
+        function connect() {
+            ws = new WebSocket(`ws://${window.location.host}/v1/textbot/visualize/ws`);
+
+            ws.onmessage = async (event) => {
+                thinking.style.display = 'none';
+
+                if (event.data instanceof Blob) {
+                    // Audio data received
+                    const messageId = localStorage.getItem('lastMessageId');
+                    if (messageId) {
+                        const audioData = await event.data.arrayBuffer();
+                        processAudioData(messageId, audioData);
+                    }
+                    return;
+                }
+
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'audio_ready') {
+                    // Preparing to receive audio data
+                    return;
+                }
+
+                if (data.type === 'partial') {
+                    // Update the last message with partial content
+                    updateLastMessage(data.sender, data.message);
+                    return;
+                }
+
+                const messageId = addMessage(data.sender, data.message, data.type);
+                localStorage.setItem('lastMessageId', messageId);
+
+                conversation.scrollTop = conversation.scrollHeight;
+
+                // Mostrar el indicador de "pensando" después de cada mensaje
+                if (data.sender !== 'system' && data.type !== 'partial') {
+                    setTimeout(() => {
+                        thinking.style.display = 'block';
+                    }, 300);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('Connection closed');
+                startBtn.disabled = false;
+                thinking.style.display = 'none';
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                thinking.style.display = 'none';
+            };
+        }
+
+        function processAudioData(messageId, audioData) {
+            audioContext.decodeAudioData(audioData)
+                .then(decodedData => {
+                    audioBuffers.set(messageId, decodedData);
+
+                    const playButton = document.querySelector(`#play_${messageId}`);
+                    if (playButton) {
+                        playButton.style.display = 'block';
+                    }
+
+                    // Auto-play if audio is enabled and not the client message
+                    const senderElement = document.querySelector(`#sender_${messageId}`);
+                    if (audioEnabled && senderElement && senderElement.textContent.includes('Parrot Bot')) {
+                        playAudio(messageId);
+                    }
+                })
+                .catch(err => console.error('Error decoding audio data:', err));
+        }
+
+        function playAudio(messageId) {
+            if (!audioEnabled) return;
+
+            // Stop current audio if playing
+            if (currentAudio) {
+                currentAudio.stop();
+            }
+
+            const audioBuffer = audioBuffers.get(messageId);
+            if (!audioBuffer) return;
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+
+            const gainNode = audioContext.createGain();
+            gainNode.gain.value = parseFloat(volumeControl.value);
+
+            source.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            source.start(0);
+            currentAudio = source;
+
+            source.onended = function() {
+                currentAudio = null;
+            };
+        }
+
+        function generateId() {
+            return 'msg_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        }
+
+        function addMessage(sender, text, type) {
+            const messageId = generateId();
+            const messageDiv = document.createElement('div');
+
+            if (sender === 'client') {
+                messageDiv.className = 'message client';
+            } else if (sender === 'parrot') {
+                messageDiv.className = 'message parrot';
+            } else if (sender === 'system') {
+                messageDiv.className = `message system ${type || ''}`;
+            }
+            messageDiv.id = messageId;
+
+            const senderLabel = document.createElement('div');
+            senderLabel.className = 'sender-label';
+            senderLabel.id = `sender_${messageId}`;
+
+            let senderText = '';
+            if (sender === 'client') {
+                senderText = 'Cliente Bot';
+            } else if (sender === 'parrot') {
+                senderText = 'Parrot Bot';
+            } else if (sender === 'system') {
+                senderText = 'Sistema';
+            }
+
+            const senderNameSpan = document.createElement('span');
+            senderNameSpan.textContent = senderText;
+            senderLabel.appendChild(senderNameSpan);
+
+            // Add play button to the sender label
+            if (sender !== 'system') {
+                const audioControls = document.createElement('div');
+                audioControls.className = 'audio-controls';
+
+                const playButton = document.createElement('button');
+                playButton.className = 'play-button';
+                playButton.id = `play_${messageId}`;
+                playButton.innerHTML = '▶';
+                playButton.title = 'Reproducir audio';
+                playButton.onclick = function() { playAudio(messageId); };
+                playButton.style.display = 'none'; // Initially hidden until audio is available
+
+                audioControls.appendChild(playButton);
+                senderLabel.appendChild(audioControls);
+            }
+
+            const messageText = document.createElement('div');
+            messageText.textContent = text;
+            messageText.id = `text_${messageId}`;
+
+            messageDiv.appendChild(senderLabel);
+            messageDiv.appendChild(messageText);
+            conversation.appendChild(messageDiv);
+
+            return messageId;
+        }
+
+        function updateLastMessage(sender, text) {
+            const messages = document.querySelectorAll(`.message.${sender}`);
+            if (messages.length > 0) {
+                const lastMessage = messages[messages.length - 1];
+                const textElement = lastMessage.querySelector('[id^=text_]');
+                if (textElement) {
+                    textElement.textContent += text;
+                }
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            startBtn.disabled = true;
+            thinking.style.display = 'block';
+            conversation.innerHTML = '';
+            connect();
+
+            // Resume AudioContext if it's suspended (needed for browsers with autoplay policy)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (ws) {
+                ws.close();
+            }
+            conversation.innerHTML = '';
+            thinking.style.display = 'none';
+            startBtn.disabled = false;
+            audioBuffers.clear();
+
+            if (currentAudio) {
+                currentAudio.stop();
+                currentAudio = null;
+            }
+        });
+
+        toggleAudioBtn.addEventListener('click', () => {
+            audioEnabled = !audioEnabled;
+            toggleAudioBtn.textContent = audioEnabled ? 'Mute Audio' : 'Enable Audio';
+
+            if (!audioEnabled && currentAudio) {
+                currentAudio.stop();
+                currentAudio = null;
+            }
+        });
+
+        volumeControl.addEventListener('input', function() {
+            if (currentAudio) {
+                // If audio is currently playing, update its volume
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = parseFloat(this.value);
+                currentAudio.disconnect();
+                currentAudio.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+            }
+        });
+    </script>
+</body>
+</html>
