@@ -38,7 +38,7 @@ def process_image(api_url: str, image_base64: str, prompt: str) -> dict:
     response = requests.post(
         api_url,
         json={
-            "image_base64": image_base64,
+            "file_base64": image_base64,
             "prompt": prompt
         },
         headers={"Content-Type": "application/json"}
@@ -58,7 +58,7 @@ def main():
     print("=" * 80)
     
     # Reemplaza con la ruta a tu volante
-    volante_path = r"C:\Users\jaandr7\Downloads\volante.png"
+    volante_path = r"C:\Users\javir\Downloads\Volante.png"
 
     try:
         # Codificar imagen
@@ -72,7 +72,7 @@ def main():
         response = requests.post(
             API_URL,
             json={
-                "image_base64": image_base64
+                "file_base64": image_base64
                 # Sin prompt - se usa el por defecto
             },
             headers={"Content-Type": "application/json"}

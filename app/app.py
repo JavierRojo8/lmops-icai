@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 # Importar routers
 from app.routers.agent import router as image_processor
+from app.routers import file_info
 app = FastAPI(
     title="MAPFRE - Image Processing API",
     description="API for extracting information from images using Gemini",
@@ -27,7 +28,8 @@ app.add_middleware(
 
 # Incluimos los routers
 app.include_router(image_processor, prefix="/v1/image")
-
+# Incluimos los routers de file_info
+app.include_router(file_info.router, prefix="/v1/files")
 # Servir archivos estáticos del frontend
 # Buscar el directorio frontend tanto en desarrollo como en Docker
 frontend_dir = Path(__file__).parent.parent / "frontend"
