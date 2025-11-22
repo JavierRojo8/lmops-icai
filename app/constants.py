@@ -108,7 +108,7 @@ class Constants:
     
     # Configuracion de Google Cloud Platform / Gemini
     GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY")
-    GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-exp")
+    GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL")
     
     # Configuracion de logging
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
